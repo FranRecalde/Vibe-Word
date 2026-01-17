@@ -18,6 +18,8 @@
         body { font-family: 'Nunito', sans-serif; }
         .card-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
         .card-lift:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        /* Hide scrollbar for clean look */
+        textarea::-webkit-scrollbar { display: none; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
@@ -26,28 +28,349 @@
 
     <script type="text/babel">
         const { useState, useEffect } = React;
+        const PIXABAY_KEY = '35727559-0e840d0e0fcf00ac6876a7099'; // Shared key
 
-        // --- PASTE YOUR REACT COMPONENT CODE BELOW THIS LINE ---
-        // (Do NOT include the 'import' lines at the top or 'export' at the bottom)
-
-        const PIXABAY_KEY = '35727559-0e840d0e0fcf00ac6876a7099'; // Use your key if different
-
+        // --- THE VIBEWORD APP COMPONENT ---
         function FlashcardGenerator() {
-            // ... (Your Component Logic Goes Here) ...
-            // Since I cannot see your full latest code, I will provide the structure.
-            // If you still have the text from your Vibe Coding tool, 
-            // paste the function content here.
-            
-            // TEMPORARY PLACEHOLDER TO PROVE IT WORKS:
+            // Default text showing new syntax
+            const [wordsInput, setWordsInput] = useState(
+                `to play football==jugar al fútbol
+ir al cine==ir al cine
+to do my homework==hacer mis deberes
+to watch films ==ver pelis
+to study English==estudiar inglés
+to travel abroad==viajar al extranjero`
+            );
+
+            const [cards, setCards] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState('');
+
+            // Grid Config State
+            const [gridConfig, setGridConfig] = useState({ size: 'standard', limit: 9, cols: 3 });
+            // Mode State (Full, Scaffold, Blank)
+            const [labelMode, setLabelMode] = useState('full');
+            // Search Override State (Which card is searching?)
+            const [searchCardIndex, setSearchCardIndex] = useState(null);
+            const [tempSearchTerm, setTempSearchTerm] = useState('');
+
+            // Safety Net Dictionary
+            const translations = { "dog": "Perro", "cat": "Gato", "table": "Mesa", "chair": "Silla", "apple": "Manzana", "book": "Libro", "pen": "Bolígrafo", "house": "Casa", "tree": "Árbol", "sun": "Sol", "moon": "Luna", "water": "Agua", "car": "Coche", "flower": "Flor", "bird": "Pájaro", "fish": "Pez", "ball": "Pelota", "computer": "Ordenador", "shirt": "Camisa", "shoe": "Zapato" };
+
+            // 1. FETCH IMAGE FUNCTION
+            const fetchVectorImage = async (term, page = 1) => {
+                if (!PIXABAY_KEY) return null;
+                try {
+                    const response = await fetch(`https://pixabay.com/api/?key=${PIXABAY_KEY}&q=${encodeURIComponent(term)}&image_type=vector&per_page=3&page=${page}`);
+                    const data = await response.json();
+                    if (data.hits && data.hits.length > 0) {
+                        return data.hits[0].webformatURL;
+                    }
+                } catch (err) {
+                    console.error("Pixabay fetch failed", err);
+                }
+                return null;
+            };
+
+            // 2. GENERATE GRID FUNCTION
+            const handleGenerate = async () => {
+                setLoading(true);
+                setCards([]); 
+
+                // Split by newlines OR commas
+                const rawItems = wordsInput.split(/[,\n]+/)
+                    .map(w => w.trim())
+                    .filter(w => w.length > 0)
+                    .slice(0, gridConfig.limit);
+
+                if (rawItems.length === 0) {
+                    setError('Please enter at least one word.');
+                    setLoading(false);
+                    return;
+                }
+
+                const newCards = [];
+
+                for (const item of rawItems) {
+                    let searchTerm = '';
+                    let displayLabel = '';
+
+                    // Check for Double Equals Syntax
+                    if (item.includes('==')) {
+                        const parts = item.split('==');
+                        searchTerm = parts[0].trim();
+                        displayLabel = parts[1].trim();
+                    } else {
+                        // Standard Single Word
+                        searchTerm = item;
+                        const lowerWord = searchTerm.toLowerCase();
+                        if (translations[lowerWord]) {
+                            displayLabel = translations[lowerWord];
+                        } else {
+                            displayLabel = searchTerm; // Fallback
+                        }
+                    }
+
+                    // Fetch Image
+                    const imageUrl = await fetchVectorImage(searchTerm, 1);
+                    
+                    newCards.push({
+                        word: displayLabel,     // The Spanish text
+                        searchTerm: searchTerm, // The English search term
+                        image: imageUrl,
+                        imagePage: 1            // Track page for refreshing
+                    });
+                }
+
+                setCards(newCards);
+                setLoading(false);
+            };
+
+            // 3. HELPER: SCAFFOLDING MASK
+            const getMaskedLabel = (text, mode) => {
+                if (!text) return "";
+                if (mode === 'blank') return "________________";
+                if (mode === 'scaffold') {
+                    // "Jugar al fútbol" -> "J**** a* f*****"
+                    return text.split(' ').map(word => {
+                        if (word.length <= 1) return word;
+                        return word.charAt(0) + '*'.repeat(word.length - 1);
+                    }).join(' ');
+                }
+                return text; // 'full' mode
+            };
+
+            // 4. ACTION: REFRESH IMAGE
+            const handleRefreshImage = async (index, currentTerm) => {
+                const randomPage = Math.floor(Math.random() * 19) + 2; 
+                const imageUrl = await fetchVectorImage(currentTerm, randomPage);
+                if (imageUrl) {
+                    const newCards = [...cards];
+                    newCards[index].image = imageUrl;
+                    setCards(newCards);
+                }
+            };
+
+            // 5. ACTION: UPLOAD IMAGE
+            const handleImageUpload = (index, event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const newCards = [...cards];
+                    newCards[index].image = URL.createObjectURL(file);
+                    setCards(newCards);
+                }
+            };
+
+            // 6. ACTION: MANUAL SEARCH (MAGNIFYING GLASS)
+            const executeManualSearch = async (index) => {
+                if(!tempSearchTerm.trim()) return;
+                
+                const imageUrl = await fetchVectorImage(tempSearchTerm, 1);
+                if(imageUrl) {
+                    const newCards = [...cards];
+                    newCards[index].image = imageUrl; 
+                    // We DO NOT change the label, only the image!
+                    setCards(newCards);
+                }
+                setSearchCardIndex(null); // Close search box
+                setTempSearchTerm('');
+            };
+
+            // 7. EXPORT TO PPT
+            const handleDownloadSlides = () => {
+                if (!window.PptxGenJS) return;
+                const pptx = new window.PptxGenJS();
+                pptx.layout = 'LAYOUT_16x9';
+                
+                cards.forEach(card => {
+                    const slide = pptx.addSlide();
+                    slide.background = { color: 'FFFFFF' };
+                    
+                    if (card.image) {
+                        slide.addImage({ path: card.image, x: '10%', y: '5%', w: '80%', h: '75%', sizing: { type: 'contain', align: 'center' } });
+                    }
+                    slide.addText(card.word, { x: 0, y: '82%', w: '100%', h: '15%', fontSize: 48, bold: true, align: 'center', color: '000000', fontFace: 'Arial' });
+                });
+                pptx.writeFile({ fileName: 'VibeWord_Flashcards.pptx' });
+            };
+
             return (
-                <div className="flex flex-col items-center justify-center h-screen text-teal-600">
-                    <h1 className="text-4xl font-bold">VibeWord is working!</h1>
-                    <p className="text-gray-600 mt-4">Now paste your component code inside the script tag.</p>
+                <div className="flex flex-col items-center min-h-screen pb-20">
+                    
+                    {/* --- HEADER --- */}
+                    <div className="w-full bg-teal-600 py-6 text-center shadow-md mb-8">
+                        <h1 className="text-4xl font-extrabold text-white tracking-wide">VibeWord</h1>
+                        <p className="text-teal-100 mt-1 font-semibold text-lg">Visual Vocabulary Generator</p>
+                    </div>
+
+                    <div className="w-full max-w-5xl px-4">
+                        
+                        {/* --- CONTROL CARD --- */}
+                        <div className="bg-white rounded-2xl shadow-md p-6 mb-8 border border-gray-100">
+                            
+                            {/* Grid Size Selector */}
+                            <div className="flex items-center space-x-4 mb-4">
+                                <span className="text-gray-500 font-bold text-sm uppercase tracking-wide">Grid Size:</span>
+                                <div className="flex space-x-2">
+                                    {[
+                                        { id: 'small', label: 'Small (3x2)', limit: 6, cols: 3 },
+                                        { id: 'standard', label: 'Standard (3x3)', limit: 9, cols: 3 },
+                                        { id: 'large', label: 'Large (4x3)', limit: 12, cols: 4 }
+                                    ].map((opt) => (
+                                        <button 
+                                            key={opt.id}
+                                            onClick={() => setGridConfig({ size: opt.id, limit: opt.limit, cols: opt.cols })}
+                                            className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
+                                                gridConfig.size === opt.id 
+                                                ? 'bg-teal-600 text-white shadow-md' 
+                                                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                            }`}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Input Area */}
+                            <textarea
+                                className="w-full h-40 p-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-teal-500 focus:ring-0 transition-colors font-mono text-sm text-slate-700 resize-none"
+                                value={wordsInput}
+                                onChange={(e) => setWordsInput(e.target.value)}
+                                placeholder="Enter words..."
+                            />
+                            <p className="text-xs text-gray-400 mt-2 text-right">
+                                Tip: Use <span className="font-mono bg-gray-100 px-1 rounded">Search == Label</span> for precise control.
+                            </p>
+
+                            {/* Action Bar */}
+                            <div className="flex flex-col md:flex-row justify-between items-center mt-6 gap-4">
+                                {/* Mode Selector */}
+                                <div className="flex items-center space-x-2">
+                                    <span className="text-gray-500 text-sm font-bold">Mode:</span>
+                                    <select 
+                                        value={labelMode}
+                                        onChange={(e) => setLabelMode(e.target.value)}
+                                        className="bg-slate-100 border-none text-slate-700 text-sm font-bold rounded-lg py-2 pl-3 pr-8 focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                                    >
+                                        <option value="full">Full Labels</option>
+                                        <option value="scaffold">Scaffolded (G***)</option>
+                                        <option value="blank">Blank (Quiz)</option>
+                                    </select>
+                                </div>
+
+                                {/* Main Buttons */}
+                                <div className="flex space-x-3 w-full md:w-auto">
+                                    <button 
+                                        onClick={handleGenerate}
+                                        disabled={loading}
+                                        className="flex-1 md:flex-none px-8 py-3 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-full shadow-md hover:shadow-lg transition-all transform active:scale-95 flex items-center justify-center gap-2"
+                                    >
+                                        {loading ? "Generating..." : "✨ Generate Grid"}
+                                    </button>
+                                    
+                                    <button onClick={() => window.print()} className="px-6 py-3 bg-amber-400 hover:bg-amber-500 text-white font-bold rounded-full shadow-sm hover:shadow-md transition-all">
+                                        🖨 Print
+                                    </button>
+                                    <button onClick={handleDownloadSlides} className="px-6 py-3 bg-amber-400 hover:bg-amber-500 text-white font-bold rounded-full shadow-sm hover:shadow-md transition-all">
+                                        💾 Slides
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* --- GRID DISPLAY --- */}
+                        <div className={`grid gap-6 ${gridConfig.cols === 4 ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                            {cards.map((card, index) => (
+                                <div key={index} className="bg-white rounded-2xl shadow-sm border-b-4 border-gray-200 p-4 flex flex-col items-center justify-between card-lift transition-all duration-300 relative group min-h-[320px]">
+                                    
+                                    {/* Image Container */}
+                                    <div className="w-full h-48 flex items-center justify-center mb-4 overflow-hidden rounded-lg bg-white">
+                                        {card.image ? (
+                                            <img src={card.image} alt={card.searchTerm} className="max-h-full max-w-full object-contain" />
+                                        ) : (
+                                            <div className="text-gray-300 text-4xl">?</div>
+                                        )}
+                                    </div>
+
+                                    {/* Action Row (Hover only) */}
+                                    <div className={`absolute top-2 right-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity`}>
+                                        {/* 1. Refresh Button */}
+                                        <button 
+                                            onClick={() => handleRefreshImage(index, card.searchTerm)}
+                                            title="Try another image"
+                                            className="p-2 bg-white rounded-full shadow-md text-gray-400 hover:text-teal-600 hover:bg-teal-50"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
+                                        </button>
+                                        
+                                        {/* 2. Manual Search Button */}
+                                        <button 
+                                            onClick={() => {
+                                                setSearchCardIndex(index);
+                                                setTempSearchTerm('');
+                                            }}
+                                            title="Search for specific image"
+                                            className="p-2 bg-white rounded-full shadow-md text-gray-400 hover:text-teal-600 hover:bg-teal-50"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                        </button>
+
+                                        {/* 3. Upload Button */}
+                                        <label className="p-2 bg-white rounded-full shadow-md text-gray-400 hover:text-teal-600 hover:bg-teal-50 cursor-pointer">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(index, e)} />
+                                        </label>
+                                    </div>
+
+                                    {/* Manual Search Input Popover */}
+                                    {searchCardIndex === index && (
+                                        <div className="absolute top-12 left-2 right-2 bg-white shadow-xl rounded-lg p-2 z-10 border border-teal-100 flex gap-1">
+                                            <input 
+                                                autoFocus
+                                                type="text" 
+                                                className="flex-1 text-xs border border-gray-300 rounded px-2 py-1"
+                                                placeholder="Search for..."
+                                                value={tempSearchTerm}
+                                                onChange={(e) => setTempSearchTerm(e.target.value)}
+                                                onKeyDown={(e) => e.key === 'Enter' && executeManualSearch(index)}
+                                            />
+                                            <button onClick={() => executeManualSearch(index)} className="bg-teal-500 text-white px-2 rounded text-xs">Go</button>
+                                            <button onClick={() => setSearchCardIndex(null)} className="text-gray-400 px-1 text-xs">✕</button>
+                                        </div>
+                                    )}
+
+                                    {/* Editable Label Area */}
+                                    <div className="w-full relative group/edit">
+                                        <textarea
+                                            rows="2"
+                                            className="w-full text-center font-extrabold text-indigo-700 text-xl md:text-2xl bg-transparent border-b-2 border-transparent focus:border-indigo-300 focus:bg-indigo-50/50 rounded transition-all resize-none outline-none leading-tight whitespace-normal break-words overflow-hidden decoration-dotted underline underline-offset-4 decoration-indigo-200 hover:decoration-indigo-400"
+                                            value={getMaskedLabel(card.word, labelMode)}
+                                            onChange={(e) => {
+                                                const newCards = [...cards];
+                                                newCards[index].word = e.target.value; 
+                                                setCards(newCards);
+                                            }}
+                                            onFocus={(e) => {
+                                                // When clicking, show full text even if scaffolded
+                                                if(labelMode !== 'full') {
+                                                    e.target.value = card.word;
+                                                }
+                                            }}
+                                            onBlur={(e) => {
+                                                 // When clicking away, re-apply mask logic
+                                                 e.target.scrollTop = 0;
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                    </div>
                 </div>
             );
         }
-
-        // --- END OF YOUR CODE ---
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<FlashcardGenerator />);
