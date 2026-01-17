@@ -5,13 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VibeWord</title>
     
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
     
+    <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel -->
     <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    
+    <!-- PptxGenJS -->
     <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 
     <style>
@@ -182,15 +189,75 @@ to travel abroad==viajar al extranjero`
                 const pptx = new window.PptxGenJS();
                 pptx.layout = 'LAYOUT_16x9';
                 
+                // 1. Individual Slides
                 cards.forEach(card => {
                     const slide = pptx.addSlide();
                     slide.background = { color: 'FFFFFF' };
                     
+                    // Use helper to respect current label mode (full, scaffold, blank)
+                    const labelText = getMaskedLabel(card.word, labelMode);
+
                     if (card.image) {
                         slide.addImage({ path: card.image, x: '10%', y: '5%', w: '80%', h: '75%', sizing: { type: 'contain', align: 'center' } });
                     }
-                    slide.addText(card.word, { x: 0, y: '82%', w: '100%', h: '15%', fontSize: 48, bold: true, align: 'center', color: '000000', fontFace: 'Arial' });
+                    slide.addText(labelText, { x: 0, y: '82%', w: '100%', h: '15%', fontSize: 48, bold: true, align: 'center', color: '000000', fontFace: 'Arial' });
                 });
+
+                // 2. Summary Slide
+                if (cards.length > 0) {
+                    const summarySlide = pptx.addSlide();
+                    summarySlide.background = { color: 'F0FDFA' }; // Light Teal
+                    summarySlide.addText("Summary / Resumen", { x: 0, y: '5%', w: '100%', h: '10%', fontSize: 24, bold: true, align: 'center', color: '008080' });
+
+                    // Dynamic Grid Calculation
+                    const cols = gridConfig.cols; // Respects Small (3), Standard (3), Large (4)
+                    const rows = Math.ceil(cards.length / cols);
+                    
+                    // Layout calculations (percentages)
+                    const marginX = 5;
+                    const marginY = 15; // Start below title
+                    const usableWidth = 90;
+                    const usableHeight = 80;
+                    
+                    const cellW = usableWidth / cols;
+                    const cellH = usableHeight / rows;
+
+                    cards.forEach((card, index) => {
+                        const colIndex = index % cols;
+                        const rowIndex = Math.floor(index / cols);
+
+                        const xPos = marginX + (colIndex * cellW);
+                        const yPos = marginY + (rowIndex * cellH);
+                        
+                        // Use helper to respect current label mode
+                        const labelText = getMaskedLabel(card.word, labelMode);
+
+                        // Image takes up top 65% of cell, Text takes bottom 35%
+                        if (card.image) {
+                             summarySlide.addImage({ 
+                                path: card.image, 
+                                x: `${xPos + 1}%`, // slight padding
+                                y: `${yPos + 1}%`, 
+                                w: `${cellW - 2}%`, 
+                                h: `${(cellH * 0.65) - 2}%`, 
+                                sizing: { type: 'contain', align: 'center' } 
+                            });
+                        }
+
+                        // Label
+                        summarySlide.addText(labelText, {
+                            x: `${xPos}%`,
+                            y: `${yPos + (cellH * 0.65)}%`,
+                            w: `${cellW}%`,
+                            h: `${cellH * 0.35}%`,
+                            fontSize: 10, // Small text for summary
+                            align: 'center',
+                            valign: 'top',
+                            color: '333333'
+                        });
+                    });
+                }
+
                 pptx.writeFile({ fileName: 'VibeWord_Flashcards.pptx' });
             };
 
